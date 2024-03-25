@@ -1,215 +1,141 @@
-import {Command} from "./command.class";
-import {Markup, Telegraf} from "telegraf";
-import {IBotContext} from "../context/context.interface";
-import {DateTime} from "luxon"
+import { Command } from "./command.class";
+import { Markup, Telegraf } from "telegraf";
+import { IBotContext } from "../context/context.interface";
+import { DateTime } from "luxon"; // Импорт Luxon
+import groupScheduleData from "../datas/groupSheduleData";
 
-const scheduleData: SheduleInterface[] = [
-	{
-		date: new Date(),
-		data: {
-			subject: "Математика",
-			educator: "Иванова",
-			time: "9:00 - 10:30"
-		}
-	},
-	{
-		date: new Date(),
-		data: {
-			subject: "Физика",
-			educator: "Петров",
-			time: "11:00 - 12:30"
-		}
-	},
-	{
-		date: new Date(new Date().setDate(new Date().getDate() - 1)),
-		data: {
-			subject: "История",
-			educator: "Сидоров",
-			time: "10:00 - 11:30"
-		}
-	},
-	{
-		date: new Date(new Date().setDate(new Date().getDate() + 1)),
-		data: {
-			subject: "Химия",
-			educator: "Кузнецова",
-			time: "9:30 - 11:00"
-		}
-	}
-];
-
-function getScheduleForToday(): SheduleInterface[] {
-	const today = new Date();
-	const scheduleForToday: SheduleInterface[] = scheduleData.filter(item => {
-		const itemDate = new Date(item.date);
-		return itemDate.getFullYear() === today.getFullYear() &&
-			itemDate.getMonth() === today.getMonth() &&
-			itemDate.getDate() === today.getDate();
-	});
-	return scheduleForToday;
-}
-
-function getScheduleForYesterday(): SheduleInterface[] {
-	const yesterday = new Date(new Date().setDate(new Date().getDate() - 1));
-	const scheduleForYesterday: SheduleInterface[] = scheduleData.filter(item => {
-		const itemDate = new Date(item.date);
-		return itemDate.getFullYear() === yesterday.getFullYear() &&
-			itemDate.getMonth() === yesterday.getMonth() &&
-			itemDate.getDate() === yesterday.getDate();
-	});
-	return scheduleForYesterday;
-}
-
-function getScheduleForTomorrow(): SheduleInterface[] {
-	const tomorrow = new Date(new Date().setDate(new Date().getDate() + 1));
-	const scheduleForTomorrow: SheduleInterface[] = scheduleData.filter(item => {
-		const itemDate = new Date(item.date);
-		return itemDate.getFullYear() === tomorrow.getFullYear() &&
-			itemDate.getMonth() === tomorrow.getMonth() &&
-			itemDate.getDate() === tomorrow.getDate();
-	});
-	return scheduleForTomorrow;
-}
-
-
-function getScheduleForWeek(): SheduleInterface[] {
-	const today = DateTime.local();
-	const weekStart = today.startOf('week');
-	const weekEnd = today.endOf('week');
-	
-	const scheduleForWeek: SheduleInterface[] = scheduleData.filter(item => {
-		const itemDate = DateTime.fromJSDate(item.date);
-		return itemDate >= weekStart && itemDate <= weekEnd;
-	});
-	
-	scheduleForWeek.sort((a, b) => {
-		return DateTime.fromJSDate(a.date).diff(DateTime.fromJSDate(b.date)).milliseconds;
-	});
-	
-	return scheduleForWeek;
-}
-
-export interface SheduleInterface {
+// Определение интерфейса ScheduleItem
+interface ScheduleItem {
 	date: Date;
-	data: SheduleData;
-}
-
-export interface SheduleData {
-	subject: string;
-	educator: string;
-	time: string;
+	data: {
+		subject: string;
+		educator: string;
+		time: string;
+	}[];
 }
 
 export class StartCommand extends Command {
+	private scheduleData: ScheduleItem[] = [];
 	constructor(bot: Telegraf<IBotContext>) {
 		super(bot);
 	}
 	
 	handle(): void {
-		this.bot.start((ctx) => {
-			console.log(ctx.session)
-			let buttons ;
-			if (ctx.session.isSubscribe) {
-				buttons = [
-					Markup.button.callback("Розклад", "show_schedule_today"),
-					Markup.button.callback("👎 Відписатись", "unsubscribe"),
-				]
-			} else {
-				buttons = [
-					Markup.button.callback("Розклад", "show_schedule_today"),
-					Markup.button.callback("👍 Підписатись", "subscribe"),
-				]
+		this.bot.start(async (ctx) => {
+			await ctx.reply('Введіть вашу групу:');
+			ctx.session.state = 'waiting_group';
+		});
+		
+		this.bot.on('text', async (ctx) => {
+			if (ctx.session.state === 'waiting_group') {
+				const userGroup = ctx.message.text.trim();
+				const groupData = groupScheduleData.find(group => group.group === userGroup);
+				if (groupData) {
+					this.scheduleData = groupData.sheduleData;
+					let buttons = []
+					
+					if (ctx.session.isSubscribe) {
+						buttons = [
+							Markup.button.callback('На сьогодні', 'show_schedule_today'),
+							Markup.button.callback('На завтра', 'show_schedule_tomorrow'),
+							Markup.button.callback('На тиждень', 'show_schedule_week'),
+							Markup.button.callback('Ввести іншу групу', 'back_to_main'),
+							Markup.button.callback('👎', 'unsubscribe'),
+						]
+					} else {
+						buttons = [
+							Markup.button.callback('На сьогодні', 'show_schedule_today'),
+							Markup.button.callback('На завтра', 'show_schedule_tomorrow'),
+							Markup.button.callback('На тиждень', 'show_schedule_week'),
+							Markup.button.callback('Ввести іншу групу', 'back_to_main'),
+							Markup.button.callback('👍', 'subscribe'),
+						]
+					}
+					ctx.reply('Оберіть формат показу розкладу або поверніться назад до вибору групи:', Markup.inlineKeyboard(buttons));
+					ctx.session.state = 'idle';
+				} else {
+					ctx.reply('Група не знайдена. Спробуйте ще раз:', Markup.inlineKeyboard([
+						Markup.button.callback('Ввести групу повторно', 'back_to_main'),
+					]));
+				}
 			}
-			
-			ctx.reply("Hello, I'm a bot!", Markup.inlineKeyboard(buttons));
-		})
+		});
 		
 		this.bot.action("show_schedule_today", async (ctx) => {
-			const schedule = getScheduleForToday();
-			let message = "Розклад на сьогодні:\n";
-			schedule.forEach(item => {
-				message += `${item.data.time}: ${item.data.subject} (${item.data.educator})\n`;
-			});
-			await ctx.reply(message, Markup.inlineKeyboard([
-				Markup.button.callback("Розклад на неділю", "show_schedule_week"),
-				Markup.button.callback("Розклад на завтра", "show_schedule_tomorrow"),
-				Markup.button.callback("На головну", "back_to_main"),
-			]));
+			const today = DateTime.local().toFormat('yyyy-MM-dd');
+			const todaySchedule = this.scheduleData.find(item => DateTime.fromJSDate(item.date).toFormat('yyyy-MM-dd') === today);
+			if (todaySchedule) {
+				const scheduleText = todaySchedule.data.map(item => `${item.subject} (${item.time}) - ${item.educator}`).join('\n');
+				await ctx.reply(`Розклад на сьогодні:\n${scheduleText}`, Markup.inlineKeyboard([
+					Markup.button.callback('На завтра', 'show_schedule_tomorrow'),
+					Markup.button.callback('На тиждень', 'show_schedule_week'),
+					Markup.button.callback('Ввести іншу групу', 'back_to_main'),
+					ctx.session.isSubscribe ? Markup.button.callback('👎', 'unsubscribe') : Markup.button.callback('👍', 'subscribe'),
+				]));
+			} else {
+				await ctx.reply('Розклад на сьогодні відсутній.');
+			}
 		});
 		
 		this.bot.action("show_schedule_tomorrow", async (ctx) => {
-			const schedule = getScheduleForTomorrow();
-			let message = "Розклад на завтра:\n";
-			schedule.forEach(item => {
-				message += `${item.data.time}: ${item.data.subject} (${item.data.educator})\n`;
-			});
-			await ctx.reply(message, Markup.inlineKeyboard([
-				Markup.button.callback("Розклад на неділю", "show_schedule_week"),
-				Markup.button.callback("Розклад на сьогодні", "show_schedule_today"),
-				Markup.button.callback("На головну", "back_to_main"),
-			]));
+			const tomorrow = DateTime.local().plus({ days: 1 }).toFormat('yyyy-MM-dd');
+			const tomorrowSchedule = this.scheduleData.find(item => DateTime.fromJSDate(item.date).toFormat('yyyy-MM-dd') === tomorrow);
+			if (tomorrowSchedule) {
+				const scheduleText = tomorrowSchedule.data.map(item => `${item.subject} (${item.time}) - ${item.educator}`).join('\n');
+				await ctx.reply(`Розклад на завтра:\n${scheduleText}`, Markup.inlineKeyboard([
+					Markup.button.callback('На сьогодні', 'show_schedule_today'),
+					Markup.button.callback('На тиждень', 'show_schedule_week'),
+					Markup.button.callback('Ввести іншу групу', 'back_to_main'),
+					ctx.session.isSubscribe ? Markup.button.callback('👎', 'unsubscribe') : Markup.button.callback('👍', 'subscribe'),
+				]));
+			} else {
+				await ctx.reply('Розклад на завтра відсутній.');
+			}
 		});
 		
 		this.bot.action("show_schedule_week", async (ctx) => {
-			const schedule = getScheduleForWeek();
-			let message = "Розклад на всю неділю:\n";
-			schedule.forEach(item => {
-				message += `${DateTime.fromJSDate(item.date).toFormat('yyyy.MM.dd')} ${item.data.time}: ${item.data.subject} (${item.data.educator})\n`;
+			const today = DateTime.local().startOf('week');
+			const endOfWeek = DateTime.local().endOf('week');
+			const weekSchedule = this.scheduleData.filter(item => {
+				const itemDate = DateTime.fromJSDate(item.date);
+				return itemDate >= today && itemDate <= endOfWeek;
 			});
-			await ctx.reply(message, Markup.inlineKeyboard([
-				Markup.button.callback("Розклад на сьогодні", "show_schedule_today"),
-				Markup.button.callback("Розклад на завтра", "show_schedule_tomorrow"),
-				Markup.button.callback("На головну", "back_to_main"),
-			]));
+			if (weekSchedule.length > 0) {
+				const scheduleText = weekSchedule.map(day => {
+					const formattedDate = DateTime.fromJSDate(day.date).toFormat('yyyy-MM-dd');
+					const subjects = day.data.map(item => `${item.subject} (${item.time}) - ${item.educator}`).join('\n');
+					return `\n${formattedDate}:\n${subjects}`;
+				}).join('\n');
+				await ctx.reply(`Розклад на тиждень:\n${scheduleText}`, Markup.inlineKeyboard([
+					Markup.button.callback('На сьогодні', 'show_schedule_today'),
+					Markup.button.callback('На завтра', 'show_schedule_tomorrow'),
+					Markup.button.callback('Ввести іншу групу', 'back_to_main'),
+					ctx.session.isSubscribe ? Markup.button.callback('👎', 'unsubscribe') : Markup.button.callback('👍', 'subscribe'),
+				]));
+			} else {
+				await ctx.reply('Розклад на тиждень відсутній.');
+			}
 		});
 		
 		this.bot.action("back_to_main", async (ctx) => {
-			await this.deleteMessage(ctx);
-			
-			let buttons ;
-			if (ctx.session.isSubscribe) {
-				buttons = [
-					Markup.button.callback("Розклад", "show_schedule_today"),
-					Markup.button.callback("👎 Відписатись", "unsubscribe"),
-				]
-			} else {
-				buttons = [
-					Markup.button.callback("Розклад", "show_schedule_today"),
-					Markup.button.callback("👍 Підписатись", "subscribe"),
-				]
-			}
-			
-			const replyMessage = await ctx.reply("Hello, I'm a bot!", Markup.inlineKeyboard(buttons));
-			
-			ctx.session.messageId = replyMessage.message_id;
+			await ctx.reply("Введите вашу группу");
+			ctx.session.state = 'waiting_group';
 		});
 		
 		this.bot.action("subscribe", async (ctx) => {
 			ctx.session.isSubscribe = true;
-			const replyMessage = await ctx.reply("🤝 Дякуємо за підписку!", Markup.inlineKeyboard([
-				Markup.button.callback("На головну", "back_to_main"),
+			const replyMessage = await ctx.reply("Дякуємо за підписку! Уведіть ще раз вашу групу та оберіть щось інше 😉", Markup.inlineKeyboard([
+				Markup.button.callback("Ввести групу", "back_to_main"),
 			]));
-			
 			ctx.session.messageId = replyMessage.message_id;
 		});
 		
 		this.bot.action("unsubscribe", async (ctx) => {
 			ctx.session.isSubscribe = false;
-			const replyMessage = await ctx.reply("Сподіваємося що ви оформите підписку на нас в майбутньому 😉", Markup.inlineKeyboard([
-				Markup.button.callback("На головну", "back_to_main"),
+			const replyMessage = await ctx.reply("Сподіваємося, що ви підпишитесь на нас в майбутньому 😊", Markup.inlineKeyboard([
+				Markup.button.callback("Ввести групу", "back_to_main"),
 			]));
-			
 			ctx.session.messageId = replyMessage.message_id;
 		});
-	}
-	
-	async deleteMessage(ctx: any) {
-		const replyMessage = await ctx.reply("Зачекайте...");
-		const messageId = replyMessage.message_id;
-		if (messageId) {
-			await ctx.deleteMessage(messageId);
-			await ctx.deleteMessage(ctx.session.messageId);
-			ctx.session.messageId = null;
-		}
 	}
 }
